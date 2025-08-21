@@ -14,15 +14,14 @@ PING_SERVICES = [
     'http://rpc.twingly.com/',
 ]
 
-# --- WORDPRESS POSTING FUNCTION (SIMPLIFIED & CORRECTED) ---
+# --- WORDPRESS POSTING FUNCTION (FINAL VERSION) ---
 def post_to_wordpress(post_title, post_content):
-    """Posts content to a WordPress.com blog using Application Passwords directly."""
-    wp_url = os.environ['WP_URL']
+    """Posts content to a WordPress.com blog using a hardcoded API URL."""
+    # We are now hardcoding the exact URL to eliminate any errors.
+    api_url = "https://indexhub5.wordpress.com/wp-json/wp/v2/posts"
+    
     wp_user = os.environ['WP_USER']
     wp_password = os.environ['WP_PASSWORD']
-    
-    # Use the standard REST API endpoint for your specific site
-    api_url = f"{wp_url}/wp-json/wp/v2/posts"
     
     headers = {
         'Content-Type': 'application/json',
@@ -117,7 +116,7 @@ def main():
         
     except Exception as e:
         print(f"Error creating GitHub Gist: {e}")
-        gist_url = None # Ensure gist_url is defined
+        gist_url = None 
 
     # --- 5. PING SERVICES ---
     print("Pinging services...")
