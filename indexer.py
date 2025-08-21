@@ -16,36 +16,58 @@ PING_SERVICES = [
 
 # --- WORDPRESS POSTING FUNCTION ---
 def post_to_wordpress(post_title, post_content):
-    """Posts content to a WordPress.com blog using Application Passwords."""
-    wp_url = os.environ['WP_URL']
+    """Posts content to a WordPress.com blog using the public REST API."""
+    site_domain = os.environ['WP_URL']  # e.g., indexhub5.wordpress.com
     wp_user = os.environ['WP_USER']
     wp_password = os.environ['WP_PASSWORD']
     
-    # The endpoint for creating new posts
-    api_url = f"{wp_url}/wp-json/wp/v2/posts"
+    # Use the official public API endpoint for wordpress.com sites
+    api_url = f"https://public-api.wordpress.com/rest/v1.1/sites/{site_domain}/posts/new"
     
     headers = {
         'Content-Type': 'application/json',
+        # For public-api, we use a Bearer token. We'll get this using the app password.
     }
     
-    data = {
-        'title': post_title,
-        'content': post_content,
-        'status': 'publish'  # Publish immediately
+    # First, get an access token using the application password
+    token_url = 'https://public-api.wordpress.com/oauth2/token'
+    token_data = {
+        'client_id': wp_user, # For app passwords, user is the client_id
+        'client_secret': wp_password,
+        'grant_type': 'password',
+        'username': wp_user,
+        'password': wp_password,
     }
     
-    # Use the Application Password for authentication
-    response = requests.post(api_url, headers=headers, auth=(wp_user, wp_password), json=data)
-    
-    if response.status_code == 201: # 201 Created is the success code for new posts
-        post_data = response.json()
-        print(f"Successfully created WordPress post: {post_data['link']}")
-        return post_data['link']
-    else:
-        print(f"Error creating WordPress post: {response.status_code} - {response.text}")
+    try:
+        token_res = requests.post(token_url, data=token_data)
+        token_res.raise_for_status() # Will raise an exception for HTTP errors
+        access_token = token_res.json()['access_token']
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting WordPress access token: {e}")
+        print(f"Response body: {e.response.text}")
         return None
 
-# --- MAIN SCRIPT LOGIC ---
+    # Now, use the access token to post
+    headers['Authorization'] = f'Bearer {access_token}'
+    
+    post_data = {
+        'title': post_title,
+        'content': post_content,
+    }
+    
+    try:
+        response = requests.post(api_url, headers=headers, json=post_data)
+        response.raise_for_status() # Will raise an exception for HTTP errors
+        post_info = response.json()
+        print(f"Successfully created WordPress post: {post_info['URL']}")
+        return post_info['URL']
+    except requests.exceptions.RequestException as e:
+        print(f"Error creating WordPress post: {e}")
+        print(f"Response body: {e.response.text}")
+        return None
+
+# --- MAIN SCRIPT LOGIC (REMAINS THE SAME) ---
 def main():
     print("Starting the indexing process...")
 
@@ -55,6 +77,7 @@ def main():
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
         creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
         gs = gspread.authorize(creds)
+        # Use GT_TOKEN as specified by user
         g = Github(os.environ['GT_TOKEN'])
         print("Authentication successful.")
     except Exception as e:
@@ -113,11 +136,11 @@ def main():
         
     except Exception as e:
         print(f"Error creating GitHub Gist: {e}")
-        # Continue anyway, as the main post was successful
+        gist_url = None # Ensure gist_url is defined
 
     # --- 5. PING SERVICES ---
     print("Pinging services...")
-    urls_to_ping = [post_url, gist_url] if 'gist_url' in locals() else [post_url]
+    urls_to_ping = [post_url, gist_url] if gist_url else [post_url]
     for service in PING_SERVICES:
         for url in urls_to_ping:
             try:
