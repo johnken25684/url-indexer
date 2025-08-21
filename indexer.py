@@ -14,56 +14,37 @@ PING_SERVICES = [
     'http://rpc.twingly.com/',
 ]
 
-# --- WORDPRESS POSTING FUNCTION ---
+# --- WORDPRESS POSTING FUNCTION (SIMPLIFIED & CORRECTED) ---
 def post_to_wordpress(post_title, post_content):
-    """Posts content to a WordPress.com blog using the public REST API."""
-    site_domain = os.environ['WP_URL']  # e.g., indexhub5.wordpress.com
+    """Posts content to a WordPress.com blog using Application Passwords directly."""
+    wp_url = os.environ['WP_URL']
     wp_user = os.environ['WP_USER']
     wp_password = os.environ['WP_PASSWORD']
     
-    # Use the official public API endpoint for wordpress.com sites
-    api_url = f"https://public-api.wordpress.com/rest/v1.1/sites/{site_domain}/posts/new"
+    # Use the standard REST API endpoint for your specific site
+    api_url = f"{wp_url}/wp-json/wp/v2/posts"
     
     headers = {
         'Content-Type': 'application/json',
-        # For public-api, we use a Bearer token. We'll get this using the app password.
     }
     
-    # First, get an access token using the application password
-    token_url = 'https://public-api.wordpress.com/oauth2/token'
-    token_data = {
-        'client_id': wp_user, # For app passwords, user is the client_id
-        'client_secret': wp_password,
-        'grant_type': 'password',
-        'username': wp_user,
-        'password': wp_password,
-    }
-    
-    try:
-        token_res = requests.post(token_url, data=token_data)
-        token_res.raise_for_status() # Will raise an exception for HTTP errors
-        access_token = token_res.json()['access_token']
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting WordPress access token: {e}")
-        print(f"Response body: {e.response.text}")
-        return None
-
-    # Now, use the access token to post
-    headers['Authorization'] = f'Bearer {access_token}'
-    
-    post_data = {
+    data = {
         'title': post_title,
         'content': post_content,
+        'status': 'publish'
     }
     
     try:
-        response = requests.post(api_url, headers=headers, json=post_data)
+        # Use the Application Password directly for authentication
+        response = requests.post(api_url, headers=headers, auth=(wp_user, wp_password), json=data)
         response.raise_for_status() # Will raise an exception for HTTP errors
-        post_info = response.json()
-        print(f"Successfully created WordPress post: {post_info['URL']}")
-        return post_info['URL']
+        
+        post_data = response.json()
+        print(f"Successfully created WordPress post: {post_data['link']}")
+        return post_data['link']
     except requests.exceptions.RequestException as e:
         print(f"Error creating WordPress post: {e}")
+        print(f"Response status: {e.response.status_code}")
         print(f"Response body: {e.response.text}")
         return None
 
@@ -109,7 +90,7 @@ def main():
         return
 
     # --- 3. CREATE WORDPRESS POST ---
-    post_title = f"Link Index Report: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    post_title = f"Link Index Report: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     post_content = "<h3>New Resources Discovered:</h3><ul>"
     for item in batch:
         post_content += f'<li><a href="{item["url"]}">{item["url"]}</a></li>'
