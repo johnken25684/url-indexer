@@ -5,6 +5,7 @@ import requests
 import datetime
 from github import Github
 from google.oauth2.service_account import Credentials
+import xmlrpc.client # Using the standard XML-RPC library
 
 # --- CONFIGURATION ---
 BATCH_SIZE = 200
@@ -14,37 +15,41 @@ PING_SERVICES = [
     'http://rpc.twingly.com/',
 ]
 
-# --- WORDPRESS POSTING FUNCTION (FINAL VERSION) ---
+# --- WORDPRESS POSTING FUNCTION (XML-RPC VERSION) ---
 def post_to_wordpress(post_title, post_content):
-    """Posts content to a WordPress.com blog using a hardcoded API URL."""
-    # We are now hardcoding the exact URL to eliminate any errors.
-    api_url = "https://indexhub5.wordpress.com/wp-json/wp/v2/posts"
-    
+    """Posts content to a WordPress.com blog using the XML-RPC protocol."""
+    wp_url = os.environ['WP_URL'] # e.g., https://indexhub5.wordpress.com
     wp_user = os.environ['WP_USER']
     wp_password = os.environ['WP_PASSWORD']
     
-    headers = {
-        'Content-Type': 'application/json',
-    }
+    # The XML-RPC endpoint is a single file
+    server = xmlrpc.client.ServerProxy(f"{wp_url}/xmlrpc.php")
     
-    data = {
+    # Prepare the content in the format required by the API
+    content = {
         'title': post_title,
-        'content': post_content,
-        'status': 'publish'
+        'description': post_content, # 'description' is used for the body in this method
+        'post_type': 'post',
     }
     
     try:
-        # Use the Application Password directly for authentication
-        response = requests.post(api_url, headers=headers, auth=(wp_user, wp_password), json=data)
-        response.raise_for_status() # Will raise an exception for HTTP errors
+        # Call the method to create a new post
+        # The 'True' at the end means "publish immediately"
+        post_id = server.metaWeblog.newPost(1, wp_user, wp_password, content, True)
         
-        post_data = response.json()
-        print(f"Successfully created WordPress post: {post_data['link']}")
-        return post_data['link']
-    except requests.exceptions.RequestException as e:
-        print(f"Error creating WordPress post: {e}")
-        print(f"Response status: {e.response.status_code}")
-        print(f"Response body: {e.response.text}")
+        if post_id:
+            print(f"Successfully created WordPress post with ID: {post_id}")
+            # We can't get the full post URL back directly, but pinging the main site URL is sufficient
+            return wp_url 
+        else:
+            print("Failed to create WordPress post, no post ID was returned.")
+            return None
+
+    except xmlrpc.client.Fault as err:
+        print(f"Error creating WordPress post via XML-RPC Fault {err.faultCode}: {err.faultString}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred during XML-RPC post: {e}")
         return None
 
 # --- MAIN SCRIPT LOGIC (REMAINS THE SAME) ---
