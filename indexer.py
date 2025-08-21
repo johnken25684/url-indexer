@@ -5,34 +5,57 @@ import requests
 import datetime
 from github import Github
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
 
 # --- CONFIGURATION ---
 BATCH_SIZE = 200
-SHEET_NAME = 'Sheet1' # The name of the tab in your Google Sheet
+SHEET_NAME = 'Sheet1' 
 PING_SERVICES = [
     'http://rpc.pingomatic.com/',
     'http://rpc.twingly.com/',
-    'http://ping.blo.gs/',
-    'http://ping.feedburner.com'
 ]
+
+# --- WORDPRESS POSTING FUNCTION ---
+def post_to_wordpress(post_title, post_content):
+    """Posts content to a WordPress.com blog using Application Passwords."""
+    wp_url = os.environ['WP_URL']
+    wp_user = os.environ['WP_USER']
+    wp_password = os.environ['WP_PASSWORD']
+    
+    # The endpoint for creating new posts
+    api_url = f"{wp_url}/wp-json/wp/v2/posts"
+    
+    headers = {
+        'Content-Type': 'application/json',
+    }
+    
+    data = {
+        'title': post_title,
+        'content': post_content,
+        'status': 'publish'  # Publish immediately
+    }
+    
+    # Use the Application Password for authentication
+    response = requests.post(api_url, headers=headers, auth=(wp_user, wp_password), json=data)
+    
+    if response.status_code == 201: # 201 Created is the success code for new posts
+        post_data = response.json()
+        print(f"Successfully created WordPress post: {post_data['link']}")
+        return post_data['link']
+    else:
+        print(f"Error creating WordPress post: {response.status_code} - {response.text}")
+        return None
 
 # --- MAIN SCRIPT LOGIC ---
 def main():
     print("Starting the indexing process...")
 
-    # --- 1. AUTHENTICATION ---
+    # --- 1. AUTHENTICATION (Google and GitHub) ---
     try:
-        # Authenticate with Google (for Sheets and Blogger)
         creds_json = json.loads(os.environ['GOOGLE_CREDENTIALS'])
-        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/blogger']
+        scopes = ['https://www.googleapis.com/auth/spreadsheets']
         creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
         gs = gspread.authorize(creds)
-        blogger_service = build('blogger', 'v3', credentials=creds)
-
-        # Authenticate with GitHub (for Gists)
         g = Github(os.environ['GITHUB_TOKEN'])
-        
         print("Authentication successful.")
     except Exception as e:
         print(f"Error during authentication: {e}")
@@ -42,24 +65,19 @@ def main():
     try:
         sheet_id = os.environ['SHEET_ID']
         sheet = gs.open_by_key(sheet_id).worksheet(SHEET_NAME)
-        
         all_records = sheet.get_all_records()
         unprocessed_urls = []
-        
         for idx, row in enumerate(all_records):
             if str(row['Status']).strip() == '':
-                # Store the URL and its row number for later updates
                 unprocessed_urls.append({'url': row['URL'], 'row_num': idx + 2})
         
         if not unprocessed_urls:
             print("No new URLs to process. Exiting.")
             return
             
-        # Get the next batch
         batch = unprocessed_urls[:BATCH_SIZE]
         print(f"Found {len(unprocessed_urls)} unprocessed URLs. Taking the next batch of {len(batch)}.")
         
-        # Lock the batch by updating their status
         for item in batch:
             sheet.update_cell(item['row_num'], 2, 'Processing')
             
@@ -67,34 +85,19 @@ def main():
         print(f"Error reading from Google Sheet: {e}")
         return
 
-    # --- 3. CREATE BLOGGER POST ---
-    try:
-        blog_id = os.environ['BLOG_ID']
-        
-        # Create HTML content for the post
-        post_title = f"Link Index Report: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-        post_content = "<h3>New Resources Discovered:</h3><ul>"
+    # --- 3. CREATE WORDPRESS POST ---
+    post_title = f"Link Index Report: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    post_content = "<h3>New Resources Discovered:</h3><ul>"
+    for item in batch:
+        post_content += f'<li><a href="{item["url"]}">{item["url"]}</a></li>'
+    post_content += "</ul>"
+    
+    post_url = post_to_wordpress(post_title, post_content)
+    
+    if not post_url:
+        print("Failed to create WordPress post. Aborting.")
         for item in batch:
-            post_content += f'<li><a href="{item["url"]}">{item["url"]}</a></li>'
-        post_content += "</ul>"
-        
-        post_body = {
-            "title": post_title,
-            "content": post_content
-        }
-        
-        # Publish the post
-        posts = blogger_service.posts()
-        insert_request = posts.insert(blogId=blog_id, body=post_body, isDraft=False)
-        post = insert_request.execute()
-        post_url = post['url']
-        print(f"Successfully created Blogger post: {post_url}")
-        
-    except Exception as e:
-        print(f"Error creating Blogger post: {e}")
-        # Mark as error and exit
-        for item in batch:
-            sheet.update_cell(item['row_num'], 2, 'Error - Blogger')
+            sheet.update_cell(item['row_num'], 2, 'Error - WordPress')
         return
 
     # --- 4. CREATE GIST RSS FEED ---
@@ -104,34 +107,22 @@ def main():
             rss_content += f'<item><title>{item["url"]}</title><link>{item["url"]}</link></item>'
         rss_content += '</channel></rss>'
         
-        gist_filename = 'feed.xml'
-        gist_description = f'RSS Feed generated on {datetime.datetime.utcnow().isoformat()}'
-        
-        # Create the Gist
-        gist = g.get_user().create_gist(public=True, files={gist_filename: {"content": rss_content}}, description=gist_description)
-        gist_url = gist.files[gist_filename].raw_url
+        gist = g.get_user().create_gist(public=True, files={'feed.xml': {"content": rss_content}})
+        gist_url = gist.files['feed.xml'].raw_url
         print(f"Successfully created Gist RSS feed: {gist_url}")
         
     except Exception as e:
         print(f"Error creating GitHub Gist: {e}")
-        # Mark as error and exit
-        for item in batch:
-            sheet.update_cell(item['row_num'], 2, 'Error - Gist')
-        return
+        # Continue anyway, as the main post was successful
 
     # --- 5. PING SERVICES ---
     print("Pinging services...")
-    urls_to_ping = [post_url, gist_url]
+    urls_to_ping = [post_url, gist_url] if 'gist_url' in locals() else [post_url]
     for service in PING_SERVICES:
         for url in urls_to_ping:
             try:
                 payload = f'<?xml version="1.0"?><methodCall><methodName>weblogUpdates.ping</methodName><params><param><value>{post_title}</value></param><param><value>{url}</value></param></params></methodCall>'
-                headers = {'Content-Type': 'application/xml'}
-                response = requests.post(service, data=payload, timeout=5)
-                if response.status_code == 200:
-                    print(f"  - Pinged {service} for {url}")
-                else:
-                    print(f"  - Failed to ping {service} for {url} - Status: {response.status_code}")
+                requests.post(service, data=payload, headers={'Content-Type': 'application/xml'}, timeout=5)
             except Exception as e:
                 print(f"  - Error pinging {service}: {e}")
 
