@@ -55,7 +55,7 @@ def main():
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
         creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
         gs = gspread.authorize(creds)
-        g = Github(os.environ['GITHUB_TOKEN'])
+        g = Github(os.environ['GT_TOKEN'])
         print("Authentication successful.")
     except Exception as e:
         print(f"Error during authentication: {e}")
