@@ -1,31 +1,50 @@
+# This is the master control file for your GitHub Actions workflow.
+# It defines the schedule and provides the necessary secrets to the Python script.
+
 name: Run URL Indexer
 
 on:
   schedule:
-    - cron: '0 5 * * *' # Runs at 05:00 UTC every day
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
+    # Runs automatically at 05:00 UTC every day. You can adjust the time.
+    # '0 5 * * *' means: 0 minutes past the 5th hour, every day, every month, every day of the week.
+    - cron: '0 5 * * *'
+    
+  # This line is crucial. It allows you to manually run the script 
+  # for testing from the "Actions" tab in your GitHub repository.
+  workflow_dispatch:
 
 jobs:
   build:
+    # Use the latest stable version of Ubuntu as the operating system for the script.
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      
+      # Step 1: Checks out your repository's code so the script can access indexer.py
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      # Step 2: Sets up the Python programming language environment.
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          
+
+      # Step 3: Installs all the required Python libraries from your requirements.txt file.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
+
+      # Step 4: Executes your main Python script.
       - name: Run Indexer Script
+        # This 'env' block securely passes your secrets from GitHub to the script.
+        # The names on the left (e.g., WP_URL) MUST EXACTLY MATCH the names used in your Python script (os.environ['WP_URL']).
+        # The names on the right (e.g., secrets.WP_URL) MUST EXACTLY MATCH the names of the secrets you created in your repository settings.
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          GITHUB_TOKEN: ${{ secrets.GT_TOKEN }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-          # You MUST add your Blog ID as a secret in GitHub
-          BLOG_ID: ${{ secrets.BLOG_ID }} 
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_PASSWORD: ${{ secrets.WP_PASSWORD }}
+          GT_TOKEN: ${{ secrets.GT_TOKEN }} # Using GT_TOKEN as you specified for GitHub access.
         run: python indexer.py
