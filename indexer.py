@@ -31,12 +31,48 @@ def create_post_html(title, batch_of_urls):
 </head>
 <body>
     <h1>{title}</h1>
+    <p><a href="../index.html">Back to Home</a></p>
     <ul>
 {links_html}
     </ul>
 </body>
 </html>"""
     return html_content
+
+# --- NEW FUNCTION TO UPDATE index.html ---
+def update_index_html(new_post_filename, post_title):
+    """Creates or updates the root index.html file to link to all posts."""
+    index_path = os.path.join(REPO_PATH, 'index.html')
+    link_to_add = f'<li><a href="posts/{new_post_filename}">{post_title}</a></li>'
+    
+    if not os.path.exists(index_path):
+        # Create a new index.html if it doesn't exist
+        initial_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Link Index Hub</title>
+</head>
+<body>
+    <h1>Link Index Reports</h1>
+    <ul>
+        {link_to_add}
+    </ul>
+</body>
+</html>"""
+        with open(index_path, 'w', encoding='utf-8') as f:
+            f.write(initial_content)
+    else:
+        # Add the new link to the top of the list in the existing file
+        with open(index_path, 'r+', encoding='utf-8') as f:
+            lines = f.readlines()
+            # Find the <ul> tag
+            for i, line in enumerate(lines):
+                if '<ul>' in line:
+                    lines.insert(i + 1, f'        {link_to_add}\n')
+                    break
+            f.seek(0)
+            f.writelines(lines)
 
 # --- MAIN SCRIPT LOGIC ---
 def main():
@@ -81,7 +117,6 @@ def main():
     post_title = f"Link Report: {datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')}"
     file_name = f"{datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')}.html"
     
-    # Create a 'posts' directory if it doesn't exist
     posts_dir = os.path.join(REPO_PATH, 'posts')
     os.makedirs(posts_dir, exist_ok=True)
     
@@ -91,24 +126,23 @@ def main():
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(html_to_write)
     print(f"Successfully created HTML file: {file_path}")
+    
+    # --- 4. UPDATE THE index.html HOMEPAGE ---
+    update_index_html(file_name, post_title)
+    print("Successfully updated index.html")
 
-    # --- 4. PUSH CHANGES TO GITHUB ---
+    # --- 5. PUSH CHANGES TO GITHUB ---
     try:
         repo = Repo(REPO_PATH)
-        # Add the new file
-        repo.index.add([file_path])
+        # Add the new post file AND the updated index.html
+        repo.index.add([file_path, os.path.join(REPO_PATH, 'index.html')])
         
-        # You may want to update an index.html file here as well
-        # For simplicity, we are just adding the new post for now.
-
-        # Commit the changes
         commit_message = f"Add new link report: {post_title}"
         repo.index.commit(commit_message)
         
-        # Push to the origin
         origin = repo.remote(name='origin')
         origin.push()
-        print(f"Successfully pushed new post to the repository.")
+        print(f"Successfully pushed changes to the repository.")
         
     except Exception as e:
         print(f"Error pushing to GitHub: {e}")
@@ -116,8 +150,7 @@ def main():
             sheet.update_cell(item['row_num'], 2, 'Error - GitHub Push')
         return
 
-    # --- 5. PING THE NEW URL (Optional but Recommended) ---
-    # The URL will be based on your GitHub pages structure
+    # --- 6. PING THE NEW URL ---
     repo_url = os.environ.get('GITHUB_REPOSITORY', 'your-username/your-repo').split('/')
     live_url = f"https://{repo_url[0]}.github.io/{repo_url[1]}/posts/{file_name}"
     print(f"Pinging live URL: {live_url}")
@@ -129,7 +162,7 @@ def main():
         except Exception as e:
             print(f"  - Error pinging {service}: {e}")
 
-    # --- 6. MARK AS COMPLETED ---
+    # --- 7. MARK AS COMPLETED ---
     for item in batch:
         sheet.update_cell(item['row_num'], 2, 'Completed')
         
